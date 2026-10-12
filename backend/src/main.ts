@@ -17,6 +17,27 @@ async function bootstrap() {
   // Global prefix: /api/v1
   app.setGlobalPrefix('api/v1');
 
+  // Normalize incoming URLs (collapse duplicate slashes like //auth/login and prepend /api/v1 if omitted)
+  app.use((req: any, _res: any, next: any) => {
+    if (req.url) {
+      let cleanUrl = req.url.replace(/\/+/g, '/');
+      const pathname = cleanUrl.split('?')[0];
+      const query = cleanUrl.includes('?') ? `?${cleanUrl.split('?').slice(1).join('?')}` : '';
+
+      if (
+        !pathname.startsWith('/api') &&
+        !pathname.startsWith('/health') &&
+        !pathname.startsWith('/favicon.ico')
+      ) {
+        cleanUrl = `/api/v1${pathname.startsWith('/') ? pathname : `/${pathname}`}${query}`;
+      } else {
+        cleanUrl = `${pathname}${query}`;
+      }
+      req.url = cleanUrl;
+    }
+    next();
+  });
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({

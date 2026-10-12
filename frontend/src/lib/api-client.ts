@@ -1,4 +1,11 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+function getApiBase(): string {
+  let raw = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+  raw = raw.trim().replace(/\/+$/, '');
+  if (!raw.endsWith('/api/v1')) {
+    raw = `${raw}/api/v1`;
+  }
+  return raw;
+}
 
 export interface AuthUser {
   id: string;
@@ -81,7 +88,8 @@ class ApiClient {
   }
 
   async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+    const cleanEndpoint = endpoint.replace(/^\/+/, '');
+    const url = `${getApiBase()}/${cleanEndpoint}`;
     const headers = new Headers(options.headers || {});
 
     if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {

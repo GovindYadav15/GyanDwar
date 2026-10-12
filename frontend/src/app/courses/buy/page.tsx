@@ -23,6 +23,7 @@ import {
   Award,
   Loader2,
 } from 'lucide-react';
+import { api } from '@/lib/api-client';
 
 interface CourseOption {
   id: string;
@@ -50,14 +51,10 @@ export default function BuyCoursePage() {
   useEffect(() => {
     const fetchCourses = async () => {
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
-        const res = await fetch(`${API_URL}/student/available-courses`);
-        if (res.ok) {
-          const data: CourseOption[] = await res.json();
-          setCourses(data);
-          if (data.length > 0) {
-            setSelectedCourseIds([data[0].id]);
-          }
+        const data = await api.get<CourseOption[]>('/student/available-courses');
+        setCourses(data);
+        if (data.length > 0) {
+          setSelectedCourseIds([data[0].id]);
         }
       } catch (err) {
         console.error('Failed to load available courses', err);
@@ -132,35 +129,24 @@ export default function BuyCoursePage() {
 
     setIsSubmitting(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('examsathi_token') : null;
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
     try {
       if (token) {
-        const response = await fetch(`${API_URL}/student/course-orders`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            courseIds: selectedCourseIds,
-            receiptImageUrl: screenshotPreview,
-            transactionCode: transactionCode || undefined,
-            paymentRemarks: paymentRemarks || undefined,
-          }),
+        const data: any = await api.post('/student/course-orders', {
+          courseIds: selectedCourseIds,
+          receiptImageUrl: screenshotPreview,
+          transactionCode: transactionCode || undefined,
+          paymentRemarks: paymentRemarks || undefined,
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          setOrderSuccess({
-            orderNumber: data.orderNumber,
-            totalAmountNpr: data.totalAmountNpr,
-            courses: data.enrolledCourses,
-          });
-          setShowCheckoutModal(false);
-          setIsSubmitting(false);
-          return;
-        }
+        setOrderSuccess({
+          orderNumber: data.orderNumber,
+          totalAmountNpr: data.totalAmountNpr,
+          courses: data.enrolledCourses,
+        });
+        setShowCheckoutModal(false);
+        setIsSubmitting(false);
+        return;
       }
 
       // Fallback / Demonstration handling
