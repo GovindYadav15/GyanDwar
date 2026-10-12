@@ -11,7 +11,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT', 4000);
+  const rawPort = process.env.PORT || configService.get<string | number>('PORT', 4000);
+  const port = typeof rawPort === 'string' ? parseInt(rawPort, 10) : Number(rawPort);
 
   // Global prefix: /api/v1
   app.setGlobalPrefix('api/v1');
@@ -29,13 +30,27 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  // Enable CORS
+  // Enable CORS (supports localhost, configured APP_URL, custom CORS_ORIGINS, and Vercel preview/production domains)
+  const configuredAppUrl = configService.get<string>('APP_URL');
+  const allowedOrigins: (string | RegExp)[] = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    /\.vercel\.app$/,
+  ];
+  if (configuredAppUrl) {
+    allowedOrigins.push(configuredAppUrl);
+  }
+  const extraOrigins = configService.get<string>('CORS_ORIGINS');
+  if (extraOrigins) {
+    extraOrigins
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((origin) => allowedOrigins.push(origin));
+  }
+
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      configService.get<string>('APP_URL', 'http://localhost:3000'),
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
   });
@@ -53,9 +68,9 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  await app.listen(port);
-  logger.log(`🚀 ExamSathi Nepal API running on: http://localhost:${port}/api/v1`);
-  logger.log(`📖 Swagger OpenAPI documentation: http://localhost:${port}/api/docs`);
+  await app.listen(port, '0.0.0.0');
+  logger.log(`🚀 ExamSathi Nepal API running on: http://0.0.0.0:${port}/api/v1`);
+  logger.log(`📖 Swagger OpenAPI documentation: http://0.0.0.0:${port}/api/docs`);
 }
 
 bootstrap();

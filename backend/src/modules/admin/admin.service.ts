@@ -19,9 +19,16 @@ import {
   CreateChapterNotesDto,
   BulkMcqImportResult,
 } from '@examsathi/shared';
+import {
+  CreateCoursePayloadDto,
+  UpdateCoursePayloadDto,
+  CreateCourseChapterPayloadDto,
+  UpdateChapterPayloadDto,
+} from './dto/course.dto';
 
 @Injectable()
 export class AdminService {
+
   constructor(private prisma: PrismaService) {}
 
   // -------------------------------------------------------------
@@ -76,16 +83,270 @@ export class AdminService {
   }
 
   // -------------------------------------------------------------
+  // 1b. Dynamic Course Administration
+  // -------------------------------------------------------------
+  async createCourse(dto: CreateCoursePayloadDto) {
+    const course = await this.prisma.course.create({
+      data: {
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        priceNpr: dto.priceNpr,
+        originalPriceNpr: dto.originalPriceNpr !== undefined ? dto.originalPriceNpr : null,
+        categoryCode: dto.categoryCode ?? null,
+        faculty: dto.faculty ?? null,
+        duration: dto.duration ?? null,
+        badge: dto.badge ?? null,
+        features: dto.features && dto.features.length > 0 ? JSON.stringify(dto.features) : null,
+        isPublished: dto.isPublished ?? true,
+      },
+    });
+
+    return {
+      ...course,
+      priceNpr: Number(course.priceNpr),
+      originalPriceNpr: course.originalPriceNpr ? Number(course.originalPriceNpr) : null,
+      features: course.features ? JSON.parse(course.features) : [],
+    };
+  }
+
+  async getCourses() {
+    const courses = await this.prisma.course.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        chapters: {
+          orderBy: { chapterNumber: 'asc' },
+          include: {
+            resources: true,
+            _count: { select: { questions: true } },
+          },
+        },
+        _count: { select: { enrollments: true } },
+      },
+    });
+
+    return courses.map((c) => ({
+      id: c.id,
+      title: c.title,
+      description: c.description,
+      priceNpr: Number(c.priceNpr),
+      originalPriceNpr: c.originalPriceNpr ? Number(c.originalPriceNpr) : null,
+      categoryCode: c.categoryCode,
+      faculty: c.faculty,
+      duration: c.duration,
+      badge: c.badge,
+      features: c.features ? JSON.parse(c.features) : [],
+      isPublished: c.isPublished,
+      displayOrder: c.displayOrder,
+      chapterCount: c.chapters.length,
+      enrollmentsCount: c._count.enrollments,
+      chapters: c.chapters.map((ch) => ({
+        id: ch.id,
+        title: ch.title,
+        chapterNumber: ch.chapterNumber,
+        description: ch.description,
+        isFreePreview: ch.isFreePreview,
+        resourceCount: ch.resources.length,
+        pdfCount: ch.resources.filter((r) => r.resourceType === ResourceType.PDF).length,
+        questionCount: ch._count.questions,
+        resources: ch.resources.map((r) => ({
+          id: r.id,
+          title: r.title,
+          resourceType: r.resourceType,
+          fileUrl: r.fileUrl,
+          fileSizeBytes: r.fileSizeBytes,
+          isFreePreview: r.isFreePreview,
+        })),
+      })),
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    }));
+  }
+
+  async getCourseById(courseId: string) {
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      include: {
+        chapters: {
+          orderBy: { chapterNumber: 'asc' },
+          include: {
+            resources: { orderBy: { displayOrder: 'asc' } },
+            questions: {
+              include: { options: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!course) {
+      throw new NotFoundException(`Course with ID ${courseId} not found`);
+    }
+
+    return {
+      ...course,
+      priceNpr: Number(course.priceNpr),
+      originalPriceNpr: course.originalPriceNpr ? Number(course.originalPriceNpr) : null,
+      features: course.features ? JSON.parse(course.features) : [],
+      chapters: course.chapters.map((ch) => ({
+        id: ch.id,
+        title: ch.title,
+        chapterNumber: ch.chapterNumber,
+        description: ch.description,
+        isFreePreview: ch.isFreePreview,
+        resources: ch.resources,
+        questionCount: ch.questions.length,
+        questions: ch.questions,
+      })),
+    };
+  }
+
+  async updateCourse(courseId: string, dto: UpdateCoursePayloadDto) {
+    const existing = await this.prisma.course.findUnique({ where: { id: courseId } });
+    if (!existing) {
+      throw new NotFoundException(`Course with ID ${courseId} not found`);
+    }
+
+    const updated = await this.prisma.course.update({
+      where: { id: courseId },
+      data: {
+        ...(dto.title !== undefined && { title: dto.title.trim() }),
+        ...(dto.description !== undefined && { description: dto.description.trim() }),
+        ...(dto.priceNpr !== undefined && { priceNpr: dto.priceNpr }),
+        ...(dto.originalPriceNpr !== undefined && { originalPriceNpr: dto.originalPriceNpr }),
+        ...(dto.categoryCode !== undefined && { categoryCode: dto.categoryCode }),
+        ...(dto.faculty !== undefined && { faculty: dto.faculty }),
+        ...(dto.duration !== undefined && { duration: dto.duration }),
+        ...(dto.badge !== undefined && { badge: dto.badge }),
+        ...(dto.features !== undefined && { features: JSON.stringify(dto.features) }),
+        ...(dto.isPublished !== undefined && { isPublished: dto.isPublished }),
+      },
+    });
+
+    return {
+      ...updated,
+      priceNpr: Number(updated.priceNpr),
+      originalPriceNpr: updated.originalPriceNpr ? Number(updated.originalPriceNpr) : null,
+      features: updated.features ? JSON.parse(updated.features) : [],
+    };
+  }
+
+  async deleteCourse(courseId: string) {
+    const existing = await this.prisma.course.findUnique({ where: { id: courseId } });
+    if (!existing) {
+      throw new NotFoundException(`Course with ID ${courseId} not found`);
+    }
+
+    return this.prisma.course.delete({ where: { id: courseId } });
+  }
+
+  // -------------------------------------------------------------
+  // Course Chapter Management
+  // -------------------------------------------------------------
+  async createCourseChapter(courseId: string, dto: CreateCourseChapterPayloadDto) {
+    const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) {
+      throw new NotFoundException(`Course with ID ${courseId} not found`);
+    }
+
+    const chapter = await this.prisma.chapter.create({
+      data: {
+        courseId,
+        title: dto.title.trim(),
+        chapterNumber: dto.chapterNumber,
+        description: dto.description ? dto.description.trim() : null,
+        isFreePreview: dto.isFreePreview ?? false,
+      },
+      include: {
+        resources: true,
+      },
+    });
+
+    return chapter;
+  }
+
+  async getCourseChapters(courseId: string) {
+    const chapters = await this.prisma.chapter.findMany({
+      where: { courseId },
+      orderBy: { chapterNumber: 'asc' },
+      include: {
+        resources: { orderBy: { displayOrder: 'asc' } },
+        _count: { select: { questions: true } },
+      },
+    });
+
+    return chapters.map((ch) => ({
+      id: ch.id,
+      title: ch.title,
+      chapterNumber: ch.chapterNumber,
+      description: ch.description,
+      isFreePreview: ch.isFreePreview,
+      questionCount: ch._count.questions,
+      resources: ch.resources,
+    }));
+  }
+
+  async updateChapter(chapterId: string, dto: UpdateChapterPayloadDto) {
+    const existing = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
+    if (!existing) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+
+    return this.prisma.chapter.update({
+      where: { id: chapterId },
+      data: {
+        ...(dto.title !== undefined && { title: dto.title.trim() }),
+        ...(dto.chapterNumber !== undefined && { chapterNumber: dto.chapterNumber }),
+        ...(dto.description !== undefined && { description: dto.description.trim() }),
+        ...(dto.isFreePreview !== undefined && { isFreePreview: dto.isFreePreview }),
+      },
+    });
+  }
+
+  async deleteChapter(chapterId: string) {
+    const existing = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
+    if (!existing) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+
+    return this.prisma.chapter.delete({ where: { id: chapterId } });
+  }
+
+  async getChapterQuestions(chapterId: string) {
+    const chapter = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+
+    return this.prisma.question.findMany({
+      where: { chapterId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        options: { orderBy: { optionLabel: 'asc' } },
+      },
+    });
+  }
+
+  async deleteQuestion(questionId: string) {
+    const question = await this.prisma.question.findUnique({ where: { id: questionId } });
+    if (!question) {
+      throw new NotFoundException(`Question with ID ${questionId} not found`);
+    }
+
+    return this.prisma.question.delete({ where: { id: questionId } });
+  }
+
+  // -------------------------------------------------------------
   // 2. Chapters, Notes & Multi-PDF Sub-Chapters
   // -------------------------------------------------------------
   async getChaptersHierarchy(): Promise<AdminChapterDetail[]> {
     const chapters = await this.prisma.chapter.findMany({
+      where: { subjectId: { not: null } },
       orderBy: [
-        { subject: { examTrack: { faculty: { categoryId: 'asc' } } } },
         { chapterNumber: 'asc' },
       ],
       include: {
         subject: {
+
           include: {
             examTrack: {
               include: {

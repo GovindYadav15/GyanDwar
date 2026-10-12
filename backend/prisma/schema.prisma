@@ -144,10 +144,34 @@ model Subject {
   @@map("subjects")
 }
 
+model Course {
+  id               String             @id @default(uuid())
+  title            String
+  description      String
+  priceNpr         Decimal            @db.Decimal(10, 2)
+  originalPriceNpr Decimal?           @db.Decimal(10, 2)
+  categoryCode     String?            // e.g. "NEC", "LOK_SEWA", "DIPLOMA"
+  faculty          String?            // e.g. "Civil Engineering"
+  duration         String?            // e.g. "120+ Study Hours"
+  badge            String?            // e.g. "Featured", "Best Seller", "New Syllabus"
+  features         String?            // JSON-stringified array of feature highlights
+  isPublished      Boolean            @default(true)
+  displayOrder     Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  chapters         Chapter[]
+  enrollments      CourseEnrollment[]
+
+  @@map("courses")
+}
+
 model Chapter {
   id            String             @id @default(uuid())
-  subjectId     String
-  subject       Subject            @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subjectId     String?
+  subject       Subject?           @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  courseId      String?
+  course        Course?            @relation(fields: [courseId], references: [id], onDelete: Cascade)
   title         String
   chapterNumber Int
   description   String?
@@ -159,9 +183,11 @@ model Chapter {
   resources     LearningResource[]
   questions     Question[]
 
-  @@unique([subjectId, chapterNumber])
+  @@index([courseId])
+  @@index([subjectId])
   @@map("chapters")
 }
+
 
 enum ResourceType {
   NOTES
@@ -523,6 +549,8 @@ enum EnrollmentStatus {
 model CourseEnrollment {
   id           String           @id @default(uuid())
   userId       String
+  courseId     String?
+  course       Course?          @relation(fields: [courseId], references: [id], onDelete: SetNull)
   categoryId   String?
   facultyId    String?
   trackId      String?
@@ -544,6 +572,7 @@ model CourseEnrollment {
 
   @@index([userId])
   @@index([status])
+  @@index([courseId])
   @@map("course_enrollments")
 }
 

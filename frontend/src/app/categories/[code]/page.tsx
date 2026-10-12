@@ -12,8 +12,8 @@ export default async function CategoryDetailPage({
   // Realistic mock structure aligned with seed data
   const categoryData: Record<string, any> = {
     NEC: {
-      title: 'Nepal Engineering Council (NEC) Licensure Examination',
-      subtitle: 'Official 100-Mark Licensure Syllabus and Question Banks',
+      title: 'Nepal Engineering Council (NEC) License Examination',
+      subtitle: 'Official 100-Mark License Syllabus and Question Banks',
       faculties: [
         {
           name: 'Civil Engineering (CE)',

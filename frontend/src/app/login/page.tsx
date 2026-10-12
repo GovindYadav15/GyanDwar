@@ -22,16 +22,18 @@ export default function LoginPage() {
       const res: any = await api.post('/auth/login', { email, password });
       if (res.accessToken) {
         api.setToken(res.accessToken);
-        router.push('/dashboard');
+        if (res.user) {
+          api.setUser(res.user);
+        }
+        const isAdmin = res.user?.roles?.includes('ADMIN') || res.user?.roles?.includes('SUPER_ADMIN');
+        if (isAdmin) {
+          router.push('/admin');
+        } else {
+          router.push('/dashboard');
+        }
       }
     } catch (err: any) {
-      // Fallback demo login if API is running in mock mode
-      if (email && password) {
-        api.setToken('mock_demo_jwt_token_for_student');
-        router.push('/dashboard');
-      } else {
-        setError(err.message || 'Invalid email or password');
-      }
+      setError(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }

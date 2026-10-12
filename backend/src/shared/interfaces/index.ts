@@ -290,3 +290,56 @@ export interface VerifyOrderPaymentDto {
   orderId: string;
   notes?: string;
 }
+
+export interface CourseSummary {
+  id: string;
+  title: string;
+  description: string;
+  priceNpr: number;
+  originalPriceNpr?: number | null;
+  categoryCode?: string | null;
+  faculty?: string | null;
+  duration?: string | null;
+  badge?: string | null;
+  features?: string[] | null;
+  isPublished: boolean;
+  displayOrder: number;
+  chapterCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCourseDto {
+  title: string;
+  description: string;
+  priceNpr: number;
+  originalPriceNpr?: number;
+  categoryCode?: string;
+  faculty?: string;
+  duration?: string;
+  badge?: string;
+  features?: string[];
+  isPublished?: boolean;
+}
+
+export interface UpdateCourseDto {
+  title?: string;
+  description?: string;
+  priceNpr?: number;
+  originalPriceNpr?: number;
+  categoryCode?: string;
+  faculty?: string;
+  duration?: string;
+  badge?: string;
+  features?: string[];
+  isPublished?: boolean;
+}
+
+export interface CreateCourseChapterDto {
+  courseId: string;
+  title: string;
+  chapterNumber: number;
+  description?: string;
+  isFreePreview?: boolean;
+}
+

@@ -24,12 +24,23 @@
    - **Chapter-wise Practice Tests**: Focused revision on individual units with real-time feedback.
    - **Full-Length 100-Mark Mock Examinations**: Strict timing simulation, randomized question pools, negative marking (20%), server-authoritative timers.
 
-3. **Admin Studio & Entitlements**:
-   - Course, chapter, and sub-chapter PDF management with multi-file viewer.
-   - Manual & Automated payment receipt verification to grant course access.
-   - Multi-tier billing: Monthly, Quarterly, and Annual access passes in Nepalese Rupees (NPR).
+3. **Udemy-Style Course Catalog & Multi-Course Access**:
+   - Students can select and purchase multiple courses simultaneously.
+   - Real-time cart calculation in Nepalese Rupees (NPR).
+   - **Offline eSewa Payment Workflow**:
+     - Official eSewa ID: `9824803556`
+     - Prompt: *"Pay the price and take screenshot of the payment"*
+     - Checkout form allows students to upload transfer receipt screenshots and provide transaction codes.
+     - Submitted orders appear in the Admin Panel pending verification.
+     - Authorized administrators verify the student and payment to activate access to the respective courses.
 
-4. **Nepal Payment Gateways (eSewa & Khalti)**:
+4. **Role-Based Security & Secure Admin Provisioning**:
+   - Exactly two user roles: `STUDENT` and `ADMIN`.
+   - Public registration strictly assigns `STUDENT`, preventing privilege escalation.
+   - **Secure Initial Admin CLI Bootstrap**: One-time provisioning for `govind803556@gmail.com` with masked password input and atomic state locks.
+   - **Cryptographic Admin Invitations**: Authorized administrators invite co-administrators via SHA-256 hashed single-use tokens.
+
+5. **Nepal Payment Gateways (eSewa & Khalti)**:
    - Official **eSewa EPAY v2** with HMAC-SHA256 signature verification.
    - Official **Khalti ePayment v2** with server-side lookup validation.
 
@@ -45,18 +56,21 @@ The repository is structured into two completely independent, decoupled projects
 │   ├── prisma/               # Database schema (PostgreSQL) and seed script
 │   │   ├── schema.prisma
 │   │   └── seed.ts
-│   ├── src/                  # NestJS modules (auth, assessment, payment, admin, etc.)
+│   ├── scripts/              # Operational CLI commands (admin-bootstrap.ts)
+│   ├── src/                  # NestJS modules (auth, assessment, payment, admin, student, etc.)
 │   │   └── shared/           # API contracts, enums, interfaces
-│   ├── test/                 # Integration and unit tests
+│   ├── test/                 # Integration and security tests
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/                 # Next.js 15 App Router, React 19, Tailwind CSS
-│   ├── src/                  # Pages (13 routes), UI components, styles
+│   ├── src/                  # Pages (14 routes), UI components, styles
+│   │   ├── app/courses/buy/  # Udemy-style multi-course checkout & eSewa proof
+│   │   ├── app/admin/        # Admin Studio with Student & Payment verification
 │   │   └── shared/           # Domain contracts, enums, interfaces
 │   ├── public/               # Public static assets
 │   ├── Dockerfile
 │   └── package.json
-├── docs/                     # Architecture & specifications
+├── docs/                     # Architecture, security, and authentication documentation
 └── docker-compose.yml        # PostgreSQL, Redis, MinIO infrastructure
 ```
 
@@ -66,28 +80,18 @@ The repository is structured into two completely independent, decoupled projects
 
 ### Prerequisites
 
-- **Node.js**: v20.x or v22+ (v24.x supported)
-- **Docker & Docker Compose** (for PostgreSQL, Redis, and MinIO storage)
+- **Node.js**: v20.x, v22+, or v24.x
+- **PostgreSQL**: PostgreSQL 16+ (Local or cloud managed, e.g. Aiven)
+- **Docker & Docker Compose** (optional for local PostgreSQL/Redis/MinIO)
 
-### 1. Launch Local Infrastructure
-
-```bash
-docker-compose up -d
-```
-
-This starts:
-- PostgreSQL on `localhost:5432`
-- Redis on `localhost:6379`
-- MinIO on `localhost:9000` (Console on `:9001`)
-
-### 2. Backend Team Setup
+### 1. Backend Setup
 
 ```bash
 cd backend
 npm install
 npm run db:generate    # Generate Prisma client
-npm run db:migrate     # Apply migrations
-npm run db:seed        # Seed realistic exam and user data
+npm run db:push        # Push database schema (or npm run db:migrate)
+npm run db:seed        # Seed exam tracks, subjects, chapters, questions
 npm run dev            # Start API server on http://localhost:4000
 ```
 
@@ -95,7 +99,23 @@ npm run dev            # Start API server on http://localhost:4000
 - **Run Tests**: `npm test`
 - **Build**: `npm run build`
 
-### 3. Frontend Team Setup
+### 2. Secure Initial Admin Bootstrap
+
+To provision the initial administrator (`govind803556@gmail.com`), execute the operational CLI command:
+
+```bash
+cd backend
+
+# Interactive hidden-password prompt:
+npm run admin:bootstrap
+
+# Non-interactive operator execution:
+npm run admin:bootstrap -- --email govind803556@gmail.com --password YourSecurePassword123! --non-interactive
+```
+
+> **Security Note**: This command is strictly one-time. Once completed, a `SystemBootstrap` record is created, and further bootstrap attempts are rejected.
+
+### 3. Frontend Setup
 
 ```bash
 cd frontend
@@ -103,9 +123,29 @@ npm install
 npm run dev            # Start Next.js web application on http://localhost:3000
 ```
 
-- **Web Application**: [http://localhost:3000](http://localhost:3000)
+- **Student Portal**: [http://localhost:3000](http://localhost:3000)
+- **Course Selection & Checkout**: [http://localhost:3000/courses/buy](http://localhost:3000/courses/buy)
 - **Admin Studio**: [http://localhost:3000/admin](http://localhost:3000/admin)
-- **Build**: `npm run build`
+- **Build Production Bundle**: `npm run build`
+
+---
+
+## 🔒 Verification & Safe Recovery
+
+### Run Verification Suites:
+```bash
+# Backend test suites (all unit, integration, and security tests)
+cd backend && npm test
+
+# Backend compilation check
+cd backend && npm run build
+
+# Frontend compilation check
+cd frontend && npm run build
+```
+
+### Safe Recovery Instructions:
+If an operator accidentally loses initial administrator access before inviting other administrators, review the recovery steps in `docs/AUTHENTICATION.md#recovery` or inspect the `SystemBootstrap` and `AuditLog` records directly in the database.
 
 ---
 

@@ -6,7 +6,7 @@ export default function CategoriesPage() {
   const categories = [
     {
       code: 'NEC',
-      title: 'Nepal Engineering Council (NEC) Licensure Examination',
+      title: 'Nepal Engineering Council (NEC) License Examination',
       nepali: 'नेपाल इन्जिनियरिङ काउन्सिल लाइसेन्स परीक्षा',
       description:
         'Standardized examination required by law to obtain engineering practice licenses in Nepal. Conforms to the revised NEC syllabus.',

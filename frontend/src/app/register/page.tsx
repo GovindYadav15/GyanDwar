@@ -38,15 +38,13 @@ export default function RegisterPage() {
       });
       if (res.accessToken) {
         api.setToken(res.accessToken);
+        if (res.user) {
+          api.setUser(res.user);
+        }
         router.push('/dashboard');
       }
     } catch (err: any) {
-      if (fullName && email && password) {
-        api.setToken('mock_demo_jwt_token_for_student');
-        router.push('/dashboard');
-      } else {
-        setError(err.message || 'Registration failed. Please check inputs.');
-      }
+      setError(err.message || 'Registration failed. Please check inputs.');
     } finally {
       setLoading(false);
     }

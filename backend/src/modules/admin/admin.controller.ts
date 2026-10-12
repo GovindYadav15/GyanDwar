@@ -22,6 +22,12 @@ import {
   CreateChapterNotesDto,
   BulkMcqImportDto,
 } from '@examsathi/shared';
+import {
+  CreateCoursePayloadDto,
+  UpdateCoursePayloadDto,
+  CreateCourseChapterPayloadDto,
+  UpdateChapterPayloadDto,
+} from './dto/course.dto';
 
 @ApiTags('Admin Console & Content Studio')
 @Controller('admin')
@@ -32,6 +38,84 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   // -------------------------------------------------------------
+  // Dynamic Courses Management
+  // -------------------------------------------------------------
+  @Get('courses')
+  @ApiOperation({ summary: 'List all dynamic courses with chapters, resource count, and enrollments' })
+  async getCourses() {
+    return this.adminService.getCourses();
+  }
+
+  @Post('courses')
+  @ApiOperation({ summary: 'Create a new course with title, description, price, and metadata' })
+  async createCourse(@Body() dto: CreateCoursePayloadDto) {
+    return this.adminService.createCourse(dto);
+  }
+
+  @Get('courses/:id')
+  @ApiOperation({ summary: 'Get a single course with chapters and resources' })
+  async getCourseById(@Param('id') id: string) {
+    return this.adminService.getCourseById(id);
+  }
+
+  @Patch('courses/:id')
+  @ApiOperation({ summary: 'Update course details, price, description, or status' })
+  async updateCourse(@Param('id') id: string, @Body() dto: UpdateCoursePayloadDto) {
+    return this.adminService.updateCourse(id, dto);
+  }
+
+  @Delete('courses/:id')
+  @ApiOperation({ summary: 'Delete a course and all its chapters' })
+  async deleteCourse(@Param('id') id: string) {
+    return this.adminService.deleteCourse(id);
+  }
+
+  // -------------------------------------------------------------
+  // Course Chapters & Questions
+  // -------------------------------------------------------------
+  @Post('courses/:courseId/chapters')
+  @ApiOperation({ summary: 'Create a new chapter under a specific course' })
+  async createCourseChapter(
+    @Param('courseId') courseId: string,
+    @Body() dto: CreateCourseChapterPayloadDto,
+  ) {
+    return this.adminService.createCourseChapter(courseId, dto);
+  }
+
+  @Get('courses/:courseId/chapters')
+  @ApiOperation({ summary: 'List all chapters belonging to a specific course' })
+  async getCourseChapters(@Param('courseId') courseId: string) {
+    return this.adminService.getCourseChapters(courseId);
+  }
+
+  @Patch('chapters/:chapterId')
+  @ApiOperation({ summary: 'Update chapter title, description, or preview state' })
+  async updateChapter(
+    @Param('chapterId') chapterId: string,
+    @Body() dto: UpdateChapterPayloadDto,
+  ) {
+    return this.adminService.updateChapter(chapterId, dto);
+  }
+
+  @Delete('chapters/:chapterId')
+  @ApiOperation({ summary: 'Delete a chapter and its attached resources and questions' })
+  async deleteChapter(@Param('chapterId') chapterId: string) {
+    return this.adminService.deleteChapter(chapterId);
+  }
+
+  @Get('chapters/:chapterId/questions')
+  @ApiOperation({ summary: 'Get all MCQs under a chapter' })
+  async getChapterQuestions(@Param('chapterId') chapterId: string) {
+    return this.adminService.getChapterQuestions(chapterId);
+  }
+
+  @Delete('questions/:questionId')
+  @ApiOperation({ summary: 'Delete a question from a chapter question pool' })
+  async deleteQuestion(@Param('questionId') questionId: string) {
+    return this.adminService.deleteQuestion(questionId);
+  }
+
+  // -------------------------------------------------------------
   // Operational Metrics
   // -------------------------------------------------------------
   @Get('metrics')
@@ -39,6 +123,7 @@ export class AdminController {
   async getMetrics() {
     return this.adminService.getMetrics();
   }
+
 
   // -------------------------------------------------------------
   // Content Management: Chapters, Notes & Sub-Chapters (Multi-PDF)

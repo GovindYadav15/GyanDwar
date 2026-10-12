@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   GraduationCap,
   BookOpen,
@@ -12,27 +12,71 @@ import {
   Menu,
   X,
   Sparkles,
-  ChevronDown,
   ShieldCheck,
+  LogOut,
 } from 'lucide-react';
+import { api } from '@/lib/api-client';
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [userName, setUserName] = useState('');
 
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
     };
+
+    const updateAuthState = () => {
+      const token = api.getToken();
+      const user = api.getUser();
+      const logged = Boolean(token);
+      setIsLoggedIn(logged);
+      setIsAdmin(Boolean(logged && user && (user.roles?.includes('ADMIN') || user.roles?.includes('SUPER_ADMIN'))));
+      setUserName(user?.fullName || '');
+    };
+
+    updateAuthState();
     window.addEventListener('scroll', handleScroll);
-    setIsLoggedIn(Boolean(localStorage.getItem('examsathi_token')));
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener('auth-change', updateAuthState);
+    window.addEventListener('storage', updateAuthState);
+
+    // If token exists but user profile is missing in local storage, sync from server
+    if (api.getToken() && !api.getUser()) {
+      api.get<any>('/auth/me')
+        .then((profile) => {
+          if (profile) {
+            api.setUser(profile);
+            updateAuthState();
+          }
+        })
+        .catch(() => {
+          // Token might be invalid or expired
+          api.logout();
+          updateAuthState();
+        });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('auth-change', updateAuthState);
+      window.removeEventListener('storage', updateAuthState);
+    };
   }, []);
+
+  const handleLogout = () => {
+    api.logout();
+    setMobileMenuOpen(false);
+    router.push('/login');
+  };
 
   const navLinks = [
     { label: 'Exam Categories', href: '/categories', icon: GraduationCap },
+    { label: 'Buy Courses', href: '/courses/buy', icon: Sparkles },
     { label: 'Practice Drills', href: '/assessments', icon: BookOpen },
     { label: 'Mock Exams (100 Mark)', href: '/assessments?type=FULL_MOCK', icon: CheckCircle2 },
     { label: 'Pricing Plans', href: '/pricing', icon: CreditCard },
@@ -92,22 +136,37 @@ export function Navbar() {
 
           {/* Auth / Action CTA */}
           <div className="hidden md:flex items-center gap-2.5">
-            <Link
-              href="/admin"
-              className="px-3 py-1.5 rounded-lg border border-white/20 text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1.5"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-brand-gold" />
-              Admin Studio
-            </Link>
+            {/* Show Admin Center ONLY when authenticated as an ADMIN */}
+            {isLoggedIn && isAdmin && (
+              <Link
+                href="/admin"
+                className="px-3.5 py-2 rounded-lg bg-amber-500/15 border border-amber-500/40 text-xs font-bold text-amber-300 hover:text-white hover:bg-amber-500/25 transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                <ShieldCheck className="w-4 h-4 text-brand-gold" />
+                Admin Center
+              </Link>
+            )}
 
             {isLoggedIn ? (
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-indigo hover:bg-brand-indigo-light text-white text-sm font-semibold transition-all shadow-md"
-              >
-                <User className="w-4 h-4 text-brand-gold" />
-                Student Portal
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/dashboard"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-indigo hover:bg-brand-indigo-light text-white text-xs sm:text-sm font-semibold transition-all shadow-md"
+                >
+                  <User className="w-4 h-4 text-brand-gold" />
+                  <span className="max-w-[120px] truncate">{userName || 'Student Portal'}</span>
+                </Link>
+
+                {/* Logout Button */}
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-500/30 text-xs font-semibold text-red-300 hover:text-white hover:bg-red-500/20 hover:border-red-500/50 transition-colors"
+                  title="Log out of account"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Logout</span>
+                </button>
+              </div>
             ) : (
               <>
                 <Link
@@ -157,21 +216,54 @@ export function Navbar() {
               </Link>
             );
           })}
+
           <div className="pt-4 border-t border-white/10 flex flex-col gap-2">
-            <Link
-              href="/login"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-center py-2.5 rounded-lg border border-white/20 text-white font-medium"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/register"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-center py-2.5 rounded-lg bg-brand-gold text-brand-navy font-bold"
-            >
-              Start Free Trial
-            </Link>
+            {isLoggedIn ? (
+              <>
+                {isAdmin && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 justify-center py-2.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    Admin Center
+                  </Link>
+                )}
+                <Link
+                  href="/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 justify-center py-2.5 rounded-lg bg-brand-indigo text-white font-semibold"
+                >
+                  <User className="w-4 h-4 text-brand-gold" />
+                  Student Portal ({userName || 'Candidate'})
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 justify-center py-2.5 rounded-lg border border-red-500/30 text-red-300 hover:bg-red-500/20 font-semibold transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-center py-2.5 rounded-lg border border-white/20 text-white font-medium"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/register"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-center py-2.5 rounded-lg bg-brand-gold text-brand-navy font-bold"
+                >
+                  Start Free Trial
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

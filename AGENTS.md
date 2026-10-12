@@ -71,6 +71,16 @@ Agents may independently carry out routine development, testing, refactoring, an
 5. Breaking existing shared API contracts without backwards compatibility.
 6. Triggering destructive cleanup scripts.
 
+### Mandatory Security & Provisioning Governance Rules:
+
+1. **Public Registration Role Assignment**: Public registration (`POST /api/v1/auth/register`) must always explicitly assign `STUDENT`. Never accept role elevation flags (e.g. `role: "ADMIN"` or `isAdmin: true`) from public clients.
+2. **Approved Provisioning Mechanisms**: Initial admin accounts must only be created via the secure CLI bootstrap command (`npm run admin:bootstrap`), which enforces one-time execution locks and audit logging. Additional administrators must use authorized cryptographic invitation workflows (`/api/v1/admin/invitations`).
+3. **Zero Hardcoded Credentials**: Never write credentials, admin passwords, invitation tokens, or secrets to source code, migrations, seed scripts, `.env.example`, Dockerfiles, documentation, or commit history.
+4. **No Silent Student Promotion**: Existing student accounts must never be silently or automatically converted to administrator accounts during bootstrap or registration.
+5. **Enforced Backend Authorization**: All administrative endpoints (`/api/v1/admin/*`, verification, metrics, question creation) must require backend token validation and role authorization (`RoleType.ADMIN` / `RoleType.SUPER_ADMIN`). Never rely on hidden UI elements.
+6. **Required Security Tests**: All pull requests and feature increments modifying authentication, authorization, or role management must include tests verifying resistance against privilege escalation and token forgery.
+7. **Explicit Approval for Security Boundary Changes**: Any modification that alters role boundaries, authentication guards, or token validation policies requires explicit user approval.
+
 ---
 
 ## 5. Development & Verification Commands

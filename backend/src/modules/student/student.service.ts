@@ -92,82 +92,47 @@ export class StudentService {
   }
 
   async getAvailableCourses() {
-    return [
-      {
-        id: 'course-nec-civil',
-        title: 'Nepal Engineering Council (NEC) - Civil License Complete Track',
-        categoryCode: 'NEC',
-        faculty: 'Civil Engineering',
-        badge: 'High Demand',
-        rating: 4.9,
-        reviewsCount: 320,
-        originalPriceNpr: 2999,
-        priceNpr: 1999,
-        duration: '120+ Study Hours',
-        totalMocks: 15,
-        features: [
-          'Full Syllabus NEC Civil Engineering',
-          'Unlimited 100-Mark Model Mock Exams (Negative Marking 20%)',
-          'Downloadable Chapter Formula PDFs & Notes',
-          'Instant Scoring & Performance Weakness Analysis',
-        ],
+    const courses = await this.prisma.course.findMany({
+      where: { isPublished: true },
+      orderBy: { displayOrder: 'asc' },
+      include: {
+        chapters: {
+          orderBy: { chapterNumber: 'asc' },
+          include: {
+            resources: true,
+            _count: { select: { questions: true } },
+          },
+        },
       },
-      {
-        id: 'course-loksewa-civil-7',
-        title: 'Lok Sewa Aayog: Civil Engineer (7th Level) Complete Preparation',
-        categoryCode: 'LOK_SEWA',
-        faculty: 'Civil Engineering',
-        badge: 'Best Seller',
-        rating: 4.95,
-        reviewsCount: 512,
-        originalPriceNpr: 3999,
-        priceNpr: 2499,
-        duration: '180+ Study Hours',
-        totalMocks: 25,
-        features: [
-          'Federal & Provincial Lok Sewa Syllabus',
-          'Technical Objective MCQ Question Bank (3,000+ Questions)',
-          'Previous Year Solved Papers & Rationale Explanations',
-          'Dedicated Subject-wise Drill Tests',
-        ],
-      },
-      {
-        id: 'course-loksewa-subeng-5',
-        title: 'Lok Sewa Aayog: Sub-Engineer (5th Level) Exam Booster',
-        categoryCode: 'LOK_SEWA',
-        faculty: 'Civil Engineering',
-        badge: 'Popular',
-        rating: 4.85,
-        reviewsCount: 280,
-        originalPriceNpr: 2499,
-        priceNpr: 1799,
-        duration: '100+ Study Hours',
-        totalMocks: 12,
-        features: [
-          'Assistant Level 5 Lok Sewa Curriculum',
-          'Chapter Notes, Pozzolana, Concrete & Surveying',
-          'Timed Exam Simulator with Answer Keys',
-        ],
-      },
-      {
-        id: 'course-diploma-civil',
-        title: 'Diploma Engineering Licensing Examination (Civil)',
-        categoryCode: 'DIPLOMA',
-        faculty: 'Diploma Engineering',
-        badge: 'New Syllabus',
-        rating: 4.8,
-        reviewsCount: 195,
-        originalPriceNpr: 1999,
-        priceNpr: 1499,
-        duration: '90+ Study Hours',
-        totalMocks: 10,
-        features: [
-          'CTEVT / Diploma Board Licensing Standards',
-          'Core Subject Summaries & MCQ Tests',
-          'Verified Passing Blueprint',
-        ],
-      },
-    ];
+    });
+
+    return courses.map((c) => ({
+      id: c.id,
+      title: c.title,
+      description: c.description,
+      categoryCode: c.categoryCode || 'GENERAL',
+      faculty: c.faculty || 'Engineering',
+      badge: c.badge || 'Official Curriculum',
+      rating: 4.9,
+      reviewsCount: 150,
+      originalPriceNpr: c.originalPriceNpr ? Number(c.originalPriceNpr) : Math.round(Number(c.priceNpr) * 1.4),
+      priceNpr: Number(c.priceNpr),
+      duration: c.duration || `${c.chapters.length * 15 || 60}+ Study Hours`,
+      totalMocks: c.chapters.reduce((sum, ch) => sum + (ch._count?.questions > 0 ? 1 : 0), 0) || 5,
+      features: c.features ? JSON.parse(c.features) : [
+        'Complete Chapter Syllabus & Study PDFs',
+        'Chapter-wise MCQ Questions & Explanations',
+        'Official Exam Pattern Verification',
+      ],
+      chapters: c.chapters.map((ch) => ({
+        id: ch.id,
+        title: ch.title,
+        chapterNumber: ch.chapterNumber,
+        isFreePreview: ch.isFreePreview,
+        resourceCount: ch.resources.length,
+        questionCount: ch._count.questions,
+      })),
+    }));
   }
 
   async createCourseOrder(userId: string, dto: CreateCourseOrderDto) {
@@ -211,12 +176,14 @@ export class StudentService {
           data: {
             userId,
             orderId: order.id,
+            courseId: course.id,
             courseTitle: course.title,
             priceNpr: course.priceNpr,
             status: 'PENDING_VERIFICATION',
           },
         });
       }
+
 
       await tx.auditLog.create({
         data: {
