@@ -1,4 +1,4 @@
-# AGENTS.md — Multi-Agent Engineering Governance & Guidelines
+# AGENTS.md — Engineering Governance & Guidelines
 
 ## 1. Project Purpose & Architecture
 
@@ -6,10 +6,10 @@
 
 ### Architecture Overview
 
-- **Monorepo**: Managed via `pnpm` workspaces (`apps/*`, `packages/*`).
-- **Frontend (`apps/web`)**: Next.js (App Router), React, TypeScript, Tailwind CSS, TanStack Query, shadcn/ui accessible components.
-- **Backend (`apps/api`)**: NestJS, TypeScript, REST API (`/api/v1`), Swagger/OpenAPI, Prisma ORM, centralized error handling, structured logging.
-- **Shared (`packages/shared`)**: Shared TypeScript interfaces, enums, DTOs, and validation schemas.
+- **Repository Layout**: Two self-contained, independent projects at root: `frontend/` and `backend/`.
+- **Frontend (`frontend/`)**: Next.js 15 (App Router), React, TypeScript, Tailwind CSS, TanStack Query, Lucide icons, responsive student and admin dashboards, Markdown MCQ studio, PDF viewer.
+- **Backend (`backend/`)**: NestJS 11, TypeScript, REST API (`/api/v1`), Swagger/OpenAPI, Prisma ORM (`backend/prisma`), centralized error handling, structured logging.
+- **Shared Contracts**: Common TypeScript interfaces, enums, DTOs, and validation schemas reside inside `src/shared` in each project and are resolved via `@examsathi/shared`.
 - **Data & Storage**: PostgreSQL (relational), Redis (cache/rate-limit), S3-compatible storage (notes, PDFs, diagrams).
 - **Payment Gateways**: eSewa and Khalti integrations via modular provider adapters with strict server-side signature validation and idempotent transaction processing.
 
@@ -17,16 +17,14 @@
 
 ## 2. Directory Responsibilities & File Boundaries
 
-| Path               | Responsibility                                                        | Primary Agent Owner    |
-| ------------------ | --------------------------------------------------------------------- | ---------------------- |
-| `apps/web/`        | Next.js App Router, React UI components, client state, styling        | **Frontend Agent**     |
-| `apps/api/`        | NestJS modules, controllers, services, guards, pipes, background jobs | **Backend Agent**      |
-| `packages/shared/` | Cross-app types, DTO contracts, validation schemas, enums             | **Architecture Agent** |
-| `prisma/`          | Database schema (`schema.prisma`), migrations, seed datasets          | **Database Agent**     |
-| `docs/`            | Architecture, security, API specs, payment guides, ADRs               | **All Agents**         |
-| `tasks/`           | Backlog, active, and completed task files                             | **Task Coordinator**   |
-| `tests/`           | System-level integration tests, E2E fixtures                          | **QA Agent**           |
-| `scripts/`         | Local setup, database migration, and verification automation          | **DevOps Agent**       |
+| Path                  | Responsibility                                                                 | Team / Owner           |
+| --------------------- | ------------------------------------------------------------------------------ | ---------------------- |
+| `frontend/`           | Complete Next.js application, UI components, client state, styling, pages       | **Frontend Team**      |
+| `backend/`            | Complete NestJS API, controllers, services, database schema, Prisma, migrations | **Backend Team**       |
+| `backend/prisma/`     | Database schema (`schema.prisma`), migrations, seed script (`seed.ts`)          | **Backend Team**       |
+| `backend/src/shared/` | API types, DTO contracts, enums used by backend                                | **Backend Team**       |
+| `frontend/src/shared/`| API types, DTO contracts, enums used by frontend                               | **Frontend Team**      |
+| `docs/`               | Architecture, security, API specs, payment guides, ADRs                        | **Both Teams**         |
 
 ---
 
@@ -34,9 +32,9 @@
 
 ### TypeScript Strictness
 
-- `strict: true` is strictly enforced across all packages.
+- `strict: true` / safe type handling enforced across projects.
 - Zero `any` policy: every data structure, API payload, and parameter must be explicitly typed.
-- Nullability must be handled safely via optional chaining and narrowing (`noImplicitAny`, `strictNullChecks`).
+- Nullability must be handled safely via optional chaining and narrowing (`strictNullChecks`).
 - Server Components by default in Next.js; Client Components (`'use client'`) must only be used when interactive state/hooks are necessary.
 
 ### CSS & Design System Architecture
@@ -46,11 +44,11 @@
   - Royal Indigo: `#483aa0`
   - Soft Violet: `#7965c1`
   - Parchment Amber: `#e3d095`
-- **Maintainability Rule**: Do **not** dump all custom CSS into a single unstructured `index.css`. Style assets must be modularized into:
-  - `apps/web/src/styles/tokens.css` (CSS custom properties, themes, design variables)
-  - `apps/web/src/styles/components.css` (Component layer abstractions)
-  - `apps/web/src/styles/utilities.css` (Specialized animations & utilities)
-  - Linked through Tailwind CSS configuration.
+- **Modular Styles**:
+  - `frontend/src/styles/tokens.css` (CSS custom properties, themes, design variables)
+  - `frontend/src/styles/components.css` (Component layer abstractions)
+  - `frontend/src/styles/utilities.css` (Specialized animations & utilities)
+  - `frontend/src/styles/globals.css` (Global imports)
 
 ### Assessment & Business Rules
 
@@ -75,25 +73,38 @@ Agents may independently carry out routine development, testing, refactoring, an
 
 ---
 
-## 5. Task Management Lifecycle
+## 5. Development & Verification Commands
 
-All work items follow the lifecycle:
-`tasks/backlog/` → `tasks/ready/` → `tasks/in-progress/` → `tasks/review/` → `tasks/completed/`
+### Backend:
+```bash
+cd backend
+npm install
+npm run db:generate    # Generate Prisma client
+npm run db:migrate     # Run migrations
+npm run db:seed        # Seed database
+npm run dev            # Start development server on port 4000
+npm run build          # Compile NestJS (dist/main.js)
+npm test               # Run all test suites
+```
 
-A task is considered complete ONLY when:
-
-1. All acceptance criteria are satisfied.
-2. Code follows documented architecture and styling standards.
-3. Automated unit and/or integration tests pass.
-4. Lints, TypeScript checks, and builds pass cleanly.
-5. Documentation and task files are updated with verifiable proof.
+### Frontend:
+```bash
+cd frontend
+npm install
+npm run dev            # Start Next.js on port 3000
+npm run build          # Compile Next.js production bundle
+```
 
 ---
 
-## 6. Verification Commands
+## 6. Mandatory Pre-Completion Verification Protocol
 
-- Check formatting: `pnpm format:check`
-- Lint code: `pnpm lint`
-- Type-check: `pnpm build` (or `tsc --noEmit` in workspace packages)
-- Run tests: `pnpm test`
-- Full pipeline verification: `pnpm verify`
+> **CRITICAL RULE FOR ALL AGENTS**: No agent may mark a task complete, conclude their turn, or hand off work to the user without completing this verification checklist:
+
+1. **Backend Verification**:
+   - `cd backend && npm run build` exits with code 0 (`dist/main.js` emitted).
+   - `cd backend && npm test` passes all test suites.
+2. **Frontend Verification**:
+   - `cd frontend && npm run build` exits with code 0 (all App Router routes compile).
+3. **Runtime Smoke Verification**:
+   - Ensure the server starts without missing module crashes: `node backend/dist/main.js`.

@@ -1,0 +1,555 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../../database/prisma.service';
+import {
+  ResourceType,
+  RoleType,
+  SubscriptionStatus,
+  OrderStatus,
+  PaymentStatus,
+} from '@prisma/client';
+import { parseMcqsFromMarkdown } from './utils/mcq-parser.util';
+import {
+  AdminUserListItem,
+  AdminOrderItem,
+  AdminChapterDetail,
+  CreateChapterResourceDto,
+  CreateChapterNotesDto,
+  BulkMcqImportResult,
+} from '@examsathi/shared';
+
+@Injectable()
+export class AdminService {
+  constructor(private prisma: PrismaService) {}
+
+  // -------------------------------------------------------------
+  // 1. Dashboard Metrics & Operational Overview
+  // -------------------------------------------------------------
+  async getMetrics() {
+    const [
+      totalUsers,
+      totalStudents,
+      totalAdmins,
+      totalQuestions,
+      totalAssessments,
+      totalChapters,
+      totalOrders,
+      paidOrders,
+      pendingOrders,
+      recentAuditLogs,
+    ] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.userRole.count({ where: { role: { name: RoleType.STUDENT } } }),
+      this.prisma.userRole.count({
+        where: {
+          role: { name: { in: [RoleType.ADMIN, RoleType.SUPER_ADMIN, RoleType.INSTRUCTOR] } },
+        },
+      }),
+      this.prisma.question.count(),
+      this.prisma.assessment.count(),
+      this.prisma.chapter.count(),
+      this.prisma.order.count(),
+      this.prisma.order.count({ where: { status: 'PAID' } }),
+      this.prisma.order.count({ where: { status: 'PENDING' } }),
+      this.prisma.auditLog.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { email: true, fullName: true } } },
+      }),
+    ]);
+
+    return {
+      totalUsers,
+      totalStudents,
+      totalAdmins,
+      totalQuestions,
+      totalAssessments,
+      totalChapters,
+      totalOrders,
+      paidOrders,
+      pendingOrders,
+      conversionRate: totalOrders > 0 ? Number(((paidOrders / totalOrders) * 100).toFixed(1)) : 0,
+      recentAuditLogs,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 2. Chapters, Notes & Multi-PDF Sub-Chapters
+  // -------------------------------------------------------------
+  async getChaptersHierarchy(): Promise<AdminChapterDetail[]> {
+    const chapters = await this.prisma.chapter.findMany({
+      orderBy: [
+        { subject: { examTrack: { faculty: { categoryId: 'asc' } } } },
+        { chapterNumber: 'asc' },
+      ],
+      include: {
+        subject: {
+          include: {
+            examTrack: {
+              include: {
+                faculty: {
+                  include: {
+                    category: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        resources: {
+          orderBy: { displayOrder: 'asc' },
+        },
+        _count: {
+          select: { questions: true },
+        },
+      },
+    });
+
+    return chapters.map((c) => ({
+      id: c.id,
+      subjectId: c.subjectId,
+      subjectName: c.subject.name,
+      subjectCode: c.subject.code,
+      categoryCode: c.subject.examTrack.faculty.category.code,
+      title: c.title,
+      chapterNumber: c.chapterNumber,
+      description: c.description,
+      isFreePreview: c.isFreePreview,
+      displayOrder: c.displayOrder,
+      resources: c.resources.map((r) => ({
+        id: r.id,
+        chapterId: r.chapterId,
+        title: r.title,
+        resourceType: r.resourceType as any,
+        content: r.content,
+        fileUrl: r.fileUrl,
+        fileSizeBytes: r.fileSizeBytes,
+        isFreePreview: r.isFreePreview,
+      })),
+      questionCount: c._count.questions,
+    }));
+  }
+
+  async addChapterNotes(chapterId: string, dto: CreateChapterNotesDto) {
+    const chapter = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+
+    // Check if a primary NOTES resource already exists, update or create
+    const existingNotes = await this.prisma.learningResource.findFirst({
+      where: { chapterId, resourceType: ResourceType.NOTES },
+    });
+
+    if (existingNotes) {
+      return this.prisma.learningResource.update({
+        where: { id: existingNotes.id },
+        data: {
+          title: dto.title || existingNotes.title,
+          content: dto.content,
+          isFreePreview: dto.isFreePreview ?? existingNotes.isFreePreview,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    return this.prisma.learningResource.create({
+      data: {
+        chapterId,
+        title: dto.title || `${chapter.title} Comprehensive Notes`,
+        resourceType: ResourceType.NOTES,
+        content: dto.content,
+        isFreePreview: dto.isFreePreview ?? false,
+        displayOrder: 0,
+      },
+    });
+  }
+
+  async addChapterResource(chapterId: string, dto: CreateChapterResourceDto) {
+    const chapter = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+
+    const currentCount = await this.prisma.learningResource.count({ where: { chapterId } });
+
+    return this.prisma.learningResource.create({
+      data: {
+        chapterId,
+        title: dto.title,
+        resourceType: (dto.resourceType as ResourceType) || ResourceType.PDF,
+        content: dto.content || null,
+        fileUrl: dto.fileUrl || null,
+        fileSizeBytes: dto.fileSizeBytes || null,
+        isFreePreview: dto.isFreePreview ?? false,
+        displayOrder: dto.displayOrder ?? currentCount + 1,
+      },
+    });
+  }
+
+  async deleteChapterResource(resourceId: string) {
+    const resource = await this.prisma.learningResource.findUnique({ where: { id: resourceId } });
+    if (!resource) {
+      throw new NotFoundException(`Resource with ID ${resourceId} not found`);
+    }
+
+    return this.prisma.learningResource.delete({ where: { id: resourceId } });
+  }
+
+  // -------------------------------------------------------------
+  // 3. Bulk MCQ Markdown Ingestion
+  // -------------------------------------------------------------
+  async importMcqsFromMarkdown(
+    chapterId: string,
+    markdownContent: string,
+  ): Promise<BulkMcqImportResult> {
+    const chapter = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+
+    const { questions: parsedItems, errors } = parseMcqsFromMarkdown(markdownContent);
+
+    if (parsedItems.length === 0) {
+      throw new BadRequestException({
+        message: 'No valid questions could be parsed from markdown.',
+        errors,
+      });
+    }
+
+    // Save questions in transaction
+    const createdQuestions = await this.prisma.$transaction(async (tx) => {
+      const results: { id: string; questionText: string }[] = [];
+
+      for (const item of parsedItems) {
+        const question = await tx.question.create({
+          data: {
+            chapterId,
+            questionText: item.questionText,
+            difficulty: item.difficulty as any,
+            marks: item.marks,
+            negativeMarks: item.negativeMarks,
+            explanationText: item.explanationText || null,
+            options: {
+              create: item.options.map((opt) => ({
+                optionLabel: opt.optionLabel,
+                optionText: opt.optionText,
+                isCorrect: opt.isCorrect,
+              })),
+            },
+          },
+          select: { id: true, questionText: true },
+        });
+        results.push(question);
+      }
+
+      return results;
+    });
+
+    return {
+      totalParsed: parsedItems.length,
+      createdCount: createdQuestions.length,
+      questions: createdQuestions,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 4. User Directory (Students vs Admin Categories)
+  // -------------------------------------------------------------
+  async getUsers(
+    roleCategory?: 'STUDENT' | 'ADMIN_STAFF' | 'ALL',
+    search?: string,
+  ): Promise<AdminUserListItem[]> {
+    const whereClause: any = {};
+
+    if (search && search.trim()) {
+      const query = search.trim();
+      whereClause.OR = [
+        { fullName: { contains: query, mode: 'insensitive' } },
+        { email: { contains: query, mode: 'insensitive' } },
+        { phoneNumber: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+
+    if (roleCategory === 'STUDENT') {
+      whereClause.userRoles = {
+        some: {
+          role: { name: RoleType.STUDENT },
+        },
+        none: {
+          role: { name: { in: [RoleType.ADMIN, RoleType.SUPER_ADMIN, RoleType.INSTRUCTOR] } },
+        },
+      };
+    } else if (roleCategory === 'ADMIN_STAFF') {
+      whereClause.userRoles = {
+        some: {
+          role: {
+            name: {
+              in: [
+                RoleType.ADMIN,
+                RoleType.SUPER_ADMIN,
+                RoleType.INSTRUCTOR,
+                RoleType.CONTENT_EDITOR,
+              ],
+            },
+          },
+        },
+      };
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: whereClause,
+      take: 100,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        userRoles: {
+          include: { role: true },
+        },
+        subscriptions: {
+          where: { status: SubscriptionStatus.ACTIVE, endDate: { gte: new Date() } },
+          include: { plan: true },
+          take: 1,
+        },
+      },
+    });
+
+    return users.map((u) => {
+      const roles = u.userRoles.map((ur) => ur.role.name as any);
+      const isStaff = roles.some((r: any) =>
+        [
+          RoleType.ADMIN,
+          RoleType.SUPER_ADMIN,
+          RoleType.INSTRUCTOR,
+          RoleType.CONTENT_EDITOR,
+        ].includes(r),
+      );
+
+      return {
+        id: u.id,
+        email: u.email,
+        fullName: u.fullName,
+        phoneNumber: u.phoneNumber,
+        roles,
+        isActive: u.isActive,
+        userType: isStaff ? 'ADMIN_STAFF' : 'STUDENT',
+        activeSubscription: u.subscriptions[0]?.plan?.name || null,
+        createdAt: u.createdAt.toISOString(),
+      };
+    });
+  }
+
+  async updateUserRole(userId: string, roleName: RoleType) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const role = await this.prisma.role.findUnique({ where: { name: roleName } });
+    if (!role) throw new NotFoundException(`Role ${roleName} not found`);
+
+    // Ensure user has this role
+    await this.prisma.userRole.upsert({
+      where: { userId_roleId: { userId, roleId: role.id } },
+      update: {},
+      create: { userId, roleId: role.id },
+    });
+
+    return { success: true, message: `Role ${roleName} assigned to user.` };
+  }
+
+  async updateUserStatus(userId: string, isActive: boolean) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+    });
+  }
+
+  // -------------------------------------------------------------
+  // 5. Orders & Course Access Verification by Admin
+  // -------------------------------------------------------------
+  async getOrders(statusFilter?: OrderStatus): Promise<AdminOrderItem[]> {
+    const where: any = {};
+    if (statusFilter) {
+      where.status = statusFilter;
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      take: 50,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            subscriptions: {
+              where: { status: SubscriptionStatus.ACTIVE, endDate: { gte: new Date() } },
+            },
+          },
+        },
+        plan: true,
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    return orders.map((o) => {
+      const latestPayment = o.payments[0];
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        userId: o.userId,
+        userFullName: o.user.fullName,
+        userEmail: o.user.email,
+        planId: o.planId,
+        planName: o.plan.name,
+        durationDays: o.plan.durationDays,
+        amountNpr: Number(o.amountNpr),
+        status: o.status as any,
+        paymentGateway: (latestPayment?.gateway as any) || null,
+        gatewayTransactionId: latestPayment?.gatewayTransactionId || null,
+        paymentStatus: (latestPayment?.status as any) || null,
+        createdAt: o.createdAt.toISOString(),
+        hasActiveSubscription: o.user.subscriptions.length > 0,
+      };
+    });
+  }
+
+  /**
+   * Admin explicitly verifies a payment and activates the user's subscription course access.
+   */
+  async verifyOrderPayment(orderId: string, adminUserId?: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { plan: true, user: true, payments: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order with ID ${orderId} not found`);
+    }
+
+    const durationDays = order.plan.durationDays || 30;
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Mark Order as PAID
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.PAID },
+      });
+
+      // 2. Mark payments as SUCCESS
+      if (order.payments.length > 0) {
+        await tx.payment.updateMany({
+          where: { orderId },
+          data: { status: PaymentStatus.SUCCESS },
+        });
+      } else {
+        // Create verified manual payment record
+        await tx.payment.create({
+          data: {
+            orderId,
+            gateway: 'ESEWA',
+            gatewayTransactionId: `ADMIN_VERIFIED_${Date.now()}`,
+            amountNpr: order.amountNpr,
+            status: PaymentStatus.SUCCESS,
+            rawResponse: JSON.stringify({
+              verifiedBy: adminUserId || 'ADMIN',
+              verifiedAt: new Date(),
+            }),
+          },
+        });
+      }
+
+      // 3. Create or activate Subscription granting access to courses/materials
+      const subscription = await tx.subscription.create({
+        data: {
+          userId: order.userId,
+          planId: order.planId,
+          status: SubscriptionStatus.ACTIVE,
+          startDate,
+          endDate,
+        },
+      });
+
+      // 4. Write AuditLog
+      await tx.auditLog.create({
+        data: {
+          userId: adminUserId || null,
+          action: 'ADMIN_VERIFIED_PAYMENT',
+          resourceType: 'ORDER',
+          resourceId: order.id,
+          payload: JSON.stringify({
+            orderNumber: order.orderNumber,
+            planName: order.plan.name,
+            amountNpr: Number(order.amountNpr),
+            grantedAccessDays: durationDays,
+            subscriptionId: subscription.id,
+          }),
+        },
+      });
+
+      return {
+        success: true,
+        orderId: order.id,
+        subscriptionId: subscription.id,
+        message: `Order #${order.orderNumber} successfully verified. Active subscription granted until ${endDate.toISOString().split('T')[0]}.`,
+      };
+    });
+  }
+
+  async rejectOrderPayment(
+    orderId: string,
+    reason = 'Payment verification declined by administrator.',
+  ) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED },
+      });
+
+      await tx.payment.updateMany({
+        where: { orderId },
+        data: { status: PaymentStatus.FAILED },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'ADMIN_REJECTED_PAYMENT',
+          resourceType: 'ORDER',
+          resourceId: order.id,
+          payload: JSON.stringify({ reason }),
+        },
+      });
+    });
+
+    return { success: true, message: `Order #${order.orderNumber} marked as rejected.` };
+  }
+
+  // -------------------------------------------------------------
+  // 6. Question Inventory
+  // -------------------------------------------------------------
+  async getQuestions(take = 50, skip = 0) {
+    return this.prisma.question.findMany({
+      take,
+      skip,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        chapter: {
+          include: {
+            subject: true,
+          },
+        },
+        options: true,
+      },
+    });
+  }
+}
