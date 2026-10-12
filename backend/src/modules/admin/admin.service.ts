@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import * as crypto from 'crypto';
 import {
   ResourceType,
   RoleType,
   SubscriptionStatus,
   OrderStatus,
   PaymentStatus,
+  InvitationStatus,
+  EnrollmentStatus,
 } from '@prisma/client';
 import { parseMcqsFromMarkdown } from './utils/mcq-parser.util';
 import {
@@ -368,7 +371,10 @@ export class AdminService {
   // -------------------------------------------------------------
   // 5. Orders & Course Access Verification by Admin
   // -------------------------------------------------------------
-  async getOrders(statusFilter?: OrderStatus): Promise<AdminOrderItem[]> {
+  // -------------------------------------------------------------
+  // 5. Orders & Course Access Verification by Admin
+  // -------------------------------------------------------------
+  async getOrders(statusFilter?: OrderStatus) {
     const where: any = {};
     if (statusFilter) {
       where.status = statusFilter;
@@ -384,12 +390,14 @@ export class AdminService {
             id: true,
             fullName: true,
             email: true,
+            phoneNumber: true,
             subscriptions: {
               where: { status: SubscriptionStatus.ACTIVE, endDate: { gte: new Date() } },
             },
           },
         },
         plan: true,
+        enrollments: true,
         payments: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -399,20 +407,32 @@ export class AdminService {
 
     return orders.map((o) => {
       const latestPayment = o.payments[0];
+      const courseTitles = o.enrollments.map((e) => e.courseTitle).join(', ');
       return {
         id: o.id,
         orderNumber: o.orderNumber,
         userId: o.userId,
         userFullName: o.user.fullName,
         userEmail: o.user.email,
+        userPhone: o.user.phoneNumber,
         planId: o.planId,
-        planName: o.plan.name,
-        durationDays: o.plan.durationDays,
+        planName: o.plan?.name || (courseTitles ? `Courses: ${courseTitles}` : 'Preparation Pass'),
+        durationDays: o.plan?.durationDays || 365,
         amountNpr: Number(o.amountNpr),
-        status: o.status as any,
-        paymentGateway: (latestPayment?.gateway as any) || null,
-        gatewayTransactionId: latestPayment?.gatewayTransactionId || null,
-        paymentStatus: (latestPayment?.status as any) || null,
+        status: o.status,
+        receiptImageUrl: o.receiptImageUrl || null,
+        transactionCode: o.transactionCode || null,
+        paymentRemarks: o.paymentRemarks || null,
+        verificationNotes: o.verificationNotes || null,
+        enrolledCourses: o.enrollments.map((e) => ({
+          id: e.id,
+          title: e.courseTitle,
+          status: e.status,
+          priceNpr: Number(e.priceNpr),
+        })),
+        paymentGateway: (latestPayment?.gateway as any) || (o.receiptImageUrl ? 'ESEWA_OFFLINE_SCREENSHOT' : null),
+        gatewayTransactionId: latestPayment?.gatewayTransactionId || o.transactionCode || null,
+        paymentStatus: (latestPayment?.status as any) || (o.status === 'PAID' ? 'SUCCESS' : 'PENDING'),
         createdAt: o.createdAt.toISOString(),
         hasActiveSubscription: o.user.subscriptions.length > 0,
       };
@@ -425,22 +445,26 @@ export class AdminService {
   async verifyOrderPayment(orderId: string, adminUserId?: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { plan: true, user: true, payments: true },
+      include: { plan: true, user: true, payments: true, enrollments: true },
     });
 
     if (!order) {
       throw new NotFoundException(`Order with ID ${orderId} not found`);
     }
 
-    const durationDays = order.plan.durationDays || 30;
+    const durationDays = order.plan?.durationDays || 365;
     const startDate = new Date();
     const endDate = new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Mark Order as PAID
+      // 1. Mark Order as PAID and record verification metadata
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.PAID },
+        data: {
+          status: OrderStatus.PAID,
+          verifiedById: adminUserId || null,
+          verifiedAt: new Date(),
+        },
       });
 
       // 2. Mark payments as SUCCESS
@@ -450,34 +474,57 @@ export class AdminService {
           data: { status: PaymentStatus.SUCCESS },
         });
       } else {
-        // Create verified manual payment record
         await tx.payment.create({
           data: {
             orderId,
             gateway: 'ESEWA',
-            gatewayTransactionId: `ADMIN_VERIFIED_${Date.now()}`,
+            gatewayTransactionId: order.transactionCode || `ADMIN_VERIFIED_${Date.now()}`,
             amountNpr: order.amountNpr,
             status: PaymentStatus.SUCCESS,
             rawResponse: JSON.stringify({
               verifiedBy: adminUserId || 'ADMIN',
               verifiedAt: new Date(),
+              receiptImageUrl: order.receiptImageUrl,
             }),
           },
         });
       }
 
-      // 3. Create or activate Subscription granting access to courses/materials
-      const subscription = await tx.subscription.create({
-        data: {
-          userId: order.userId,
-          planId: order.planId,
-          status: SubscriptionStatus.ACTIVE,
-          startDate,
-          endDate,
-        },
-      });
+      // 3. Activate all course enrollments tied to this order
+      if (order.enrollments.length > 0) {
+        await tx.courseEnrollment.updateMany({
+          where: { orderId },
+          data: {
+            status: EnrollmentStatus.ACTIVE,
+            verifiedAt: new Date(),
+            verifiedById: adminUserId || null,
+            expiresAt: endDate,
+          },
+        });
+      }
 
-      // 4. Write AuditLog
+      // 4. Create or activate Subscription granting access to courses/materials
+      let planIdToUse = order.planId;
+      if (!planIdToUse) {
+        const defaultPlan = await tx.subscriptionPlan.findFirst();
+        planIdToUse = defaultPlan?.id || null;
+      }
+
+      let subscriptionId: string | null = null;
+      if (planIdToUse) {
+        const subscription = await tx.subscription.create({
+          data: {
+            userId: order.userId,
+            planId: planIdToUse,
+            status: SubscriptionStatus.ACTIVE,
+            startDate,
+            endDate,
+          },
+        });
+        subscriptionId = subscription.id;
+      }
+
+      // 5. Write AuditLog
       await tx.auditLog.create({
         data: {
           userId: adminUserId || null,
@@ -486,10 +533,10 @@ export class AdminService {
           resourceId: order.id,
           payload: JSON.stringify({
             orderNumber: order.orderNumber,
-            planName: order.plan.name,
             amountNpr: Number(order.amountNpr),
+            enrolledCourses: order.enrollments.map((e) => e.courseTitle),
             grantedAccessDays: durationDays,
-            subscriptionId: subscription.id,
+            subscriptionId,
           }),
         },
       });
@@ -497,8 +544,8 @@ export class AdminService {
       return {
         success: true,
         orderId: order.id,
-        subscriptionId: subscription.id,
-        message: `Order #${order.orderNumber} successfully verified. Active subscription granted until ${endDate.toISOString().split('T')[0]}.`,
+        subscriptionId,
+        message: `Order #${order.orderNumber} successfully verified. Active course access granted until ${endDate.toISOString().split('T')[0]}.`,
       };
     });
   }
@@ -507,19 +554,32 @@ export class AdminService {
     orderId: string,
     reason = 'Payment verification declined by administrator.',
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { enrollments: true },
+    });
     if (!order) throw new NotFoundException('Order not found');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED },
+        data: {
+          status: OrderStatus.CANCELLED,
+          verificationNotes: reason,
+        },
       });
 
       await tx.payment.updateMany({
         where: { orderId },
         data: { status: PaymentStatus.FAILED },
       });
+
+      if (order.enrollments.length > 0) {
+        await tx.courseEnrollment.updateMany({
+          where: { orderId },
+          data: { status: EnrollmentStatus.REVOKED },
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -535,7 +595,242 @@ export class AdminService {
   }
 
   // -------------------------------------------------------------
-  // 6. Question Inventory
+  // 6. Student Course Verification Management
+  // -------------------------------------------------------------
+  async getStudentsList() {
+    const students = await this.prisma.user.findMany({
+      where: {
+        userRoles: {
+          some: { role: { name: RoleType.STUDENT } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        courseEnrollments: {
+          orderBy: { createdAt: 'desc' },
+        },
+        orders: {
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
+        subscriptions: {
+          where: { status: SubscriptionStatus.ACTIVE, endDate: { gte: new Date() } },
+        },
+      },
+    });
+
+    return students.map((s) => ({
+      id: s.id,
+      fullName: s.fullName,
+      email: s.email,
+      phoneNumber: s.phoneNumber,
+      isActive: s.isActive,
+      createdAt: s.createdAt.toISOString(),
+      activeSubscriptionsCount: s.subscriptions.length,
+      hasPendingVerifications: s.courseEnrollments.some(
+        (e) => e.status === EnrollmentStatus.PENDING_VERIFICATION,
+      ),
+      enrollments: s.courseEnrollments.map((e) => ({
+        id: e.id,
+        courseTitle: e.courseTitle,
+        priceNpr: Number(e.priceNpr),
+        status: e.status,
+        verifiedAt: e.verifiedAt?.toISOString() || null,
+      })),
+      orders: s.orders.map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        amountNpr: Number(o.amountNpr),
+        status: o.status,
+        receiptImageUrl: o.receiptImageUrl || null,
+        transactionCode: o.transactionCode || null,
+        createdAt: o.createdAt.toISOString(),
+      })),
+    }));
+  }
+
+  async verifyStudentCourseEnrollments(userId: string, adminUserId?: string) {
+    const student = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        courseEnrollments: {
+          where: { status: EnrollmentStatus.PENDING_VERIFICATION },
+        },
+      },
+    });
+
+    if (!student) {
+      throw new NotFoundException('Student user not found');
+    }
+
+    const verifiedAt = new Date();
+    const endDate = new Date(verifiedAt.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.courseEnrollment.updateMany({
+        where: { userId, status: EnrollmentStatus.PENDING_VERIFICATION },
+        data: {
+          status: EnrollmentStatus.ACTIVE,
+          verifiedAt,
+          verifiedById: adminUserId || null,
+          expiresAt: endDate,
+        },
+      });
+
+      // Ensure active subscription is present
+      const defaultPlan = await tx.subscriptionPlan.findFirst();
+      if (defaultPlan) {
+        await tx.subscription.create({
+          data: {
+            userId,
+            planId: defaultPlan.id,
+            status: SubscriptionStatus.ACTIVE,
+            startDate: verifiedAt,
+            endDate,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminUserId || null,
+          action: 'ADMIN_VERIFIED_STUDENT_COURSE_ACCESS',
+          resourceType: 'User',
+          resourceId: userId,
+          payload: JSON.stringify({
+            studentEmail: student.email,
+            verifiedCourses: student.courseEnrollments.map((e) => e.courseTitle),
+          }),
+        },
+      });
+
+      return {
+        success: true,
+        message: `Course access verified and granted for student ${student.fullName}.`,
+      };
+    });
+  }
+
+  // -------------------------------------------------------------
+  // 7. Administrator Invitation Management
+  // -------------------------------------------------------------
+  async createAdminInvitation(email: string, adminUserId: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existingAdmin = await this.prisma.user.findFirst({
+      where: {
+        email: normalizedEmail,
+        userRoles: {
+          some: { role: { name: { in: [RoleType.ADMIN, RoleType.SUPER_ADMIN] } } },
+        },
+      },
+    });
+    if (existingAdmin) {
+      throw new BadRequestException('A user with this email address is already an administrator');
+    }
+
+    const existingPending = await this.prisma.adminInvitation.findFirst({
+      where: {
+        email: normalizedEmail,
+        status: InvitationStatus.PENDING,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (existingPending) {
+      throw new BadRequestException('An active administrator invitation is already pending for this email');
+    }
+
+    // Cryptographically secure token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    const invitation = await this.prisma.adminInvitation.create({
+      data: {
+        email: normalizedEmail,
+        tokenHash,
+        status: InvitationStatus.PENDING,
+        invitedById: adminUserId,
+        expiresAt,
+      },
+      include: {
+        invitedBy: {
+          select: { fullName: true, email: true },
+        },
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'ADMIN_INVITATION_CREATED',
+        resourceType: 'AdminInvitation',
+        resourceId: invitation.id,
+        payload: JSON.stringify({ email: normalizedEmail, expiresAt }),
+      },
+    });
+
+    return {
+      id: invitation.id,
+      email: invitation.email,
+      status: invitation.status,
+      expiresAt: invitation.expiresAt.toISOString(),
+      invitationToken: rawToken,
+      invitationUrl: `http://localhost:3000/admin/invitations/accept?token=${rawToken}`,
+      message: 'Administrator invitation generated successfully.',
+    };
+  }
+
+  async getAdminInvitations() {
+    const invitations = await this.prisma.adminInvitation.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        invitedBy: {
+          select: { id: true, fullName: true, email: true },
+        },
+      },
+    });
+
+    return invitations.map((inv) => ({
+      id: inv.id,
+      email: inv.email,
+      status: inv.status,
+      invitedBy: inv.invitedBy.fullName,
+      invitedByEmail: inv.invitedBy.email,
+      expiresAt: inv.expiresAt.toISOString(),
+      acceptedAt: inv.acceptedAt?.toISOString() || null,
+      createdAt: inv.createdAt.toISOString(),
+    }));
+  }
+
+  async revokeAdminInvitation(invitationId: string, adminUserId: string) {
+    const invitation = await this.prisma.adminInvitation.findUnique({
+      where: { id: invitationId },
+    });
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found');
+    }
+
+    await this.prisma.adminInvitation.update({
+      where: { id: invitationId },
+      data: { status: InvitationStatus.REVOKED },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'ADMIN_INVITATION_REVOKED',
+        resourceType: 'AdminInvitation',
+        resourceId: invitationId,
+        payload: JSON.stringify({ email: invitation.email }),
+      },
+    });
+
+    return { success: true, message: 'Invitation revoked successfully.' };
+  }
+
+  // -------------------------------------------------------------
+  // 8. Question Inventory
   // -------------------------------------------------------------
   async getQuestions(take = 50, skip = 0) {
     return this.prisma.question.findMany({
@@ -553,3 +848,4 @@ export class AdminService {
     });
   }
 }
+

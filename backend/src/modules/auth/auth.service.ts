@@ -1,9 +1,17 @@
-import { Injectable, ConflictException, UnauthorizedException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  UnauthorizedException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { AcceptAdminInvitationDto } from './dto/accept-invitation.dto';
 import { RoleType } from '@prisma/client';
 
 @Injectable()
@@ -16,8 +24,9 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    const normalizedEmail = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email: normalizedEmail },
     });
 
     if (existing) {
@@ -26,7 +35,7 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
-    // Default to STUDENT role
+    // Explicitly enforce STUDENT role in trusted backend code
     let studentRole = await this.prisma.role.findUnique({
       where: { name: RoleType.STUDENT },
     });
@@ -42,10 +51,10 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email.toLowerCase(),
+        email: normalizedEmail,
         passwordHash,
-        fullName: dto.fullName,
-        phoneNumber: dto.phoneNumber,
+        fullName: dto.fullName.trim(),
+        phoneNumber: dto.phoneNumber?.trim() || null,
         userRoles: {
           create: {
             roleId: studentRole.id,
@@ -59,7 +68,7 @@ export class AuthService {
       },
     });
 
-    this.logger.log(`User registered successfully: ${user.email} (${user.id})`);
+    this.logger.log(`Student registered successfully: ${user.email} (${user.id})`);
 
     const roles = user.userRoles.map((ur) => ur.role.name);
     const token = this.generateToken(user.id, user.email, roles);
@@ -76,8 +85,9 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
+    const normalizedEmail = dto.email.toLowerCase().trim();
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email: normalizedEmail },
       include: {
         userRoles: {
           include: { role: true },
@@ -123,6 +133,9 @@ export class AuthService {
           where: { status: 'ACTIVE' },
           include: { plan: true },
         },
+        courseEnrollments: {
+          where: { status: 'ACTIVE' },
+        },
       },
     });
 
@@ -141,8 +154,106 @@ export class AuthService {
         planName: s.plan.name,
         endDate: s.endDate,
       })),
+      activeCourses: user.courseEnrollments.map((e) => ({
+        id: e.id,
+        title: e.courseTitle,
+        verifiedAt: e.verifiedAt,
+      })),
       createdAt: user.createdAt,
     };
+  }
+
+  async acceptAdminInvitation(dto: AcceptAdminInvitationDto) {
+    const tokenHash = crypto.createHash('sha256').update(dto.token.trim()).digest('hex');
+
+    const invitation = await this.prisma.adminInvitation.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!invitation) {
+      throw new UnauthorizedException('Invalid administrator invitation token.');
+    }
+
+    if (invitation.status !== 'PENDING') {
+      throw new BadRequestException(
+        `This invitation has already been ${invitation.status.toLowerCase()}.`,
+      );
+    }
+
+    if (new Date() > invitation.expiresAt) {
+      await this.prisma.adminInvitation.update({
+        where: { id: invitation.id },
+        data: { status: 'EXPIRED' },
+      });
+      throw new BadRequestException('This administrator invitation has expired.');
+    }
+
+    let adminRole = await this.prisma.role.findUnique({
+      where: { name: RoleType.ADMIN },
+    });
+    if (!adminRole) {
+      adminRole = await this.prisma.role.create({
+        data: { name: RoleType.ADMIN, description: 'Primary System Administrator' },
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Create Admin user
+      const user = await tx.user.create({
+        data: {
+          email: invitation.email.toLowerCase(),
+          passwordHash,
+          fullName: dto.fullName.trim(),
+          phoneNumber: dto.phoneNumber?.trim() || null,
+          isActive: true,
+          userRoles: {
+            create: { roleId: adminRole!.id },
+          },
+        },
+        include: {
+          userRoles: { include: { role: true } },
+        },
+      });
+
+      // Mark invitation as ACCEPTED
+      await tx.adminInvitation.update({
+        where: { id: invitation.id },
+        data: {
+          status: 'ACCEPTED',
+          acceptedAt: new Date(),
+        },
+      });
+
+      // Audit Log
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'ADMIN_INVITATION_ACCEPTED',
+          resourceType: 'User',
+          resourceId: user.id,
+          payload: JSON.stringify({
+            invitationId: invitation.id,
+            email: user.email,
+          }),
+        },
+      });
+
+      const roles = user.userRoles.map((ur) => ur.role.name);
+      const accessToken = this.generateToken(user.id, user.email, roles);
+
+      return {
+        accessToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          roles,
+        },
+        message: 'Administrator account provisioned successfully via authorized invitation.',
+      };
+    });
   }
 
   private generateToken(userId: string, email: string, roles: string[]) {

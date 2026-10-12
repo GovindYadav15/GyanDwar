@@ -76,7 +76,7 @@ async function main() {
       code: CategoryCode.NEC,
       title: 'NEC Engineering License Examination',
       description:
-        'Comprehensive preparation for Nepal Engineering Council (NEC) licensure examinations across all recognized engineering faculties.',
+        'Comprehensive preparation for Nepal Engineering Council (NEC) License examinations across all recognized engineering faculties.',
       iconUrl: 'academic-cap',
       displayOrder: 1,
       isPublished: true,

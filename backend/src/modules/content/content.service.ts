@@ -128,7 +128,18 @@ export class ContentService {
         },
       });
 
-      if (!activeSub) {
+      const activeEnrollment = await this.prisma.courseEnrollment.findFirst({
+        where: {
+          userId,
+          status: 'ACTIVE',
+          OR: [
+            { categoryId: chapter.subject.examTrack.faculty.categoryId },
+            { trackId: chapter.subject.examTrackId },
+          ],
+        },
+      });
+
+      if (!activeSub && !activeEnrollment) {
         return {
           ...chapter,
           isLocked: true,

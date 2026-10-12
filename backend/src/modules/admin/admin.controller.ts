@@ -138,6 +138,45 @@ export class AdminController {
   }
 
   // -------------------------------------------------------------
+  // Student Roster & Course Access Verification
+  // -------------------------------------------------------------
+  @Get('students')
+  @ApiOperation({ summary: 'List student candidates with course enrollments, verification status, and recent orders' })
+  async getStudents() {
+    return this.adminService.getStudentsList();
+  }
+
+  @Post('students/:userId/verify')
+  @ApiOperation({ summary: 'Directly verify student pending course enrollments and grant access' })
+  async verifyStudentCourses(@Param('userId') userId: string, @Req() req: Request) {
+    const adminUserId = (req as any).user?.id;
+    return this.adminService.verifyStudentCourseEnrollments(userId, adminUserId);
+  }
+
+  // -------------------------------------------------------------
+  // Administrator Invitation Management
+  // -------------------------------------------------------------
+  @Post('invitations')
+  @ApiOperation({ summary: 'Generate a secure cryptographic invitation link for a new administrator' })
+  async createInvitation(@Body() body: { email: string }, @Req() req: Request) {
+    const adminUserId = (req as any).user?.id;
+    return this.adminService.createAdminInvitation(body.email, adminUserId);
+  }
+
+  @Get('invitations')
+  @ApiOperation({ summary: 'List all administrator invitations with status' })
+  async getInvitations() {
+    return this.adminService.getAdminInvitations();
+  }
+
+  @Delete('invitations/:id')
+  @ApiOperation({ summary: 'Revoke an administrator invitation' })
+  async revokeInvitation(@Param('id') id: string, @Req() req: Request) {
+    const adminUserId = (req as any).user?.id;
+    return this.adminService.revokeAdminInvitation(id, adminUserId);
+  }
+
+  // -------------------------------------------------------------
   // Question Bank Inventory
   // -------------------------------------------------------------
   @Get('questions')
