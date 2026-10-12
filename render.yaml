@@ -1,6 +1,6 @@
 # ===============================================================
 # ExamSathi Nepal (GyanDwar) - Render Blueprint Specification
-# Reference: https://render.com/docs/blueprint-spec
+# Reference: https://render.com
 # ===============================================================
 
 services:
@@ -10,8 +10,7 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: npm ci && npm run db:generate && npm run build
-    preDeployCommand: npx prisma db push --schema=./prisma/schema.prisma
+    buildCommand: npm ci && npm run db:generate && npm run build && npx prisma db push --schema=./prisma/schema.prisma
     startCommand: npm run start:prod
     healthCheckPath: /api/v1/health/liveness
     autoDeploy: false # Managed via GitHub Actions CI/CD pipeline on merge to main
@@ -31,14 +30,14 @@ services:
       - key: JWT_REFRESH_EXPIRES_IN
         value: 30d
       - key: APP_URL
-        sync: false # Set to your Vercel frontend URL, e.g. https://examsathi.vercel.app
+        sync: false # Set to your Vercel frontend URL, e.g. https://vercel.app
       - key: API_URL
-        sync: false # Set to your Render backend URL, e.g. https://examsathi-backend.onrender.com
+        sync: false # Set to your Render backend URL, e.g. https://onrender.com
       - key: ESEWA_MERCHANT_CODE
         value: EPAYTEST
       - key: ESEWA_SECRET_KEY
         value: 8gBm/:&EnhH.1/q
       - key: ESEWA_BASE_URL
-        value: https://rc-epay.esewa.com.np
+        value: https://esewa.com.np
       - key: KHALTI_BASE_URL
-        value: https://a.khalti.com/api/v2
+        value: https://khalti.com
