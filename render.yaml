@@ -10,7 +10,7 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: npm ci && npm run db:generate && npm run build && npx prisma db push --schema=./prisma/schema.prisma
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build && npx prisma db push --schema=./prisma/schema.prisma
     startCommand: npm run start:prod
     healthCheckPath: /api/v1/health/liveness
     autoDeploy: false # Managed via GitHub Actions CI/CD pipeline on merge to main
