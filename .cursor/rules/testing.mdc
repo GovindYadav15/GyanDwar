@@ -1,0 +1,11 @@
+---
+description: Testing guidelines for unit, integration, and e2e testing
+globs: **/*.spec.ts, **/*.test.ts, **/*.test.tsx, tests/**/*
+alwaysApply: false
+---
+
+# Testing Strategy Rules
+- Write unit tests for assessment scoring algorithms (handling partial marks, negative marking).
+- Write unit tests for subscription entitlement matching and expiration checks.
+- Mock eSewa and Khalti external endpoints; verify signature hashing (HMAC-SHA256) matches sandbox specifications.
+- Never write tests that bypass real authorization guards without testing the rejection path first.

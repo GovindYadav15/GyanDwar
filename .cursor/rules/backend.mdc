@@ -1,0 +1,13 @@
+---
+description: Backend guidelines for NestJS, Prisma, and REST APIs
+globs: apps/api/**/*, prisma/**/*
+alwaysApply: false
+---
+
+# Backend Architecture Rules
+- Use NestJS modular architecture.
+- Keep business logic in Services, not Controllers.
+- All endpoints must be versioned (`/api/v1/...`).
+- Validate incoming payloads with `class-validator` DTOs and `ValidationPipe({ whitelist: true })`.
+- Decorate all controllers and DTOs with Swagger `@ApiTags`, `@ApiOperation`, and `@ApiResponse`.
+- Server-authoritative assessment timing: calculate expiration server-side.

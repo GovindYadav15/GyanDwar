@@ -1,0 +1,11 @@
+---
+description: Project-wide rules and architectural conventions for ExamSathi Nepal
+globs: **/*
+alwaysApply: true
+---
+
+# Project Governance Rules
+- Monorepo using `pnpm` workspaces: `apps/web` (Next.js), `apps/api` (NestJS), `packages/shared`.
+- All monetary amounts in Nepalese Rupees (NPR) must use integers (paisa) or Prisma Decimal.
+- Any change to shared contracts must be coordinated through `packages/shared`.
+- Follow strict approval boundaries outlined in root `AGENTS.md`.

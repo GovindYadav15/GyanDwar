@@ -1,0 +1,53 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Production build outputs
+dist
+build
+.next
+out
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs
+*.log
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.idea
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Test outputs & coverage
+coverage
+.nyc_output
+
+# Prisma generated artifacts
+/apps/api/src/generated
+/prisma/dev.db
+/prisma/dev.db-journal
+
+# Temporary files
+tmp
+temp
+*.tsbuildinfo
+.turbo

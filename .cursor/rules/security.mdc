@@ -1,0 +1,12 @@
+---
+description: Security rules and boundaries for ExamSathi Nepal
+globs: **/*
+alwaysApply: true
+---
+
+# Security Boundaries
+- Passwords must be hashed using bcrypt with work factor >= 10.
+- Secrets must never be committed or logged.
+- Sanitize and whitelist all inputs via DTOs and Zod schemas.
+- Payment webhooks must be authenticated via cryptographic signatures before modifying transaction or subscription tables.
+- Protect active exam attempt payloads against question explanation and answer key leakage.

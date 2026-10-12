@@ -1,0 +1,16 @@
+---
+description: Frontend specific guidelines for Next.js App Router and Tailwind CSS
+globs: apps/web/**/*
+alwaysApply: false
+---
+
+# Frontend Architecture Rules
+- Use Next.js 15 App Router with TypeScript.
+- Default to Server Components (`RSC`). Use `'use client'` only where interactive state, browser events, or hooks are necessary.
+- **CSS Architecture**: Maintainable CSS structure using:
+  - `src/styles/tokens.css` for palette and variables
+  - `src/styles/components.css` for reusable component classes
+  - `src/styles/utilities.css` for custom keyframes and utility extensions
+  - Avoid putting massive styles in `index.css`.
+- **Palette**: `#0e2148` (Slate Navy), `#483aa0` (Royal Indigo), `#7965c1` (Soft Violet), `#e3d095` (Parchment Amber).
+- Use React Hook Form + Zod for all forms.

@@ -1,0 +1,58 @@
+/* ==========================================================================
+   ExamSathi Nepal (GyanDwar) Design System Tokens
+   Palette Source: https://colorhunt.co/palette/0e2148483aa07965c1e3d095
+   ========================================================================== */
+
+:root {
+  /* Brand Core Palette */
+  --color-brand-navy: #0e2148;
+  --color-brand-navy-dark: #08142c;
+  --color-brand-navy-light: #17346f;
+  
+  --color-brand-indigo: #483aa0;
+  --color-brand-indigo-dark: #382b82;
+  --color-brand-indigo-light: #5d4ec2;
+  
+  --color-brand-purple: #7965c1;
+  --color-brand-purple-light: #9887d7;
+  --color-brand-purple-dark: #5e4b9f;
+  
+  --color-brand-gold: #e3d095;
+  --color-brand-gold-light: #ede1b6;
+  --color-brand-gold-dark: #c8b16e;
+
+  /* Surfaces & Canvas */
+  --bg-canvas: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --border-subtle: #e2e8f0;
+  --border-brand: rgba(72, 58, 160, 0.2);
+
+  /* Typography */
+  --text-main: #0e2148;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+
+  /* Status Colors */
+  --status-success: #10b981;
+  --status-warning: #f59e0b;
+  --status-danger: #ef4444;
+  --status-info: #3b82f6;
+
+  /* Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+  --radius-full: 9999px;
+}
+
+.dark {
+  --bg-canvas: #090e1a;
+  --bg-card: #0e172a;
+  --bg-surface-elevated: #15223c;
+  --border-subtle: #1e293b;
+  --border-brand: rgba(121, 101, 193, 0.3);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+}
